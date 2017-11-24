@@ -8,6 +8,9 @@
 #include <pthread.h>
 #include <math.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
 
 #include "matrix2d.h"
 #include "util.h"
@@ -151,6 +154,8 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       }
       dm2dPrint(matrix_copies[current], fp);
       fclose(fp);
+      printf("FIM\n");
+      fflush(stdout);
       exit(0);
     }
 
@@ -229,6 +234,9 @@ int main (int argc, char** argv) {
   int res;
   int periodoS;
   char* fichS;
+  FILE *f;
+  //MERDAAAAAAAAAAAAAA
+  int estado;
 
   if (argc != 11) {
     fprintf(stderr, "Utilizacao: ./heatSim N tEsq tSup tDir tInf iter trab maxD fichS periodoS\n\n");
@@ -266,18 +274,31 @@ int main (int argc, char** argv) {
   tam_fatia = N / trab;
 
   // Criar e Inicializar Matrizes
-  matrix_copies[0] = dm2dNew(N+2,N+2);
-  matrix_copies[1] = dm2dNew(N+2,N+2);
-  if (matrix_copies[0] == NULL || matrix_copies[1] == NULL) {
-    die("Erro ao criar matrizes");
+  f = fopen(fichS, "r");
+  if (f != NULL) {
+    matrix_copies[0] = readMatrix2dFromFile(f, N+2, N+2);
+    matrix_copies[1] = dm2dNew(N+2, N+2);
+    dm2dCopy(matrix_copies[1], matrix_copies[0]);
+
+    if (matrix_copies[0] == NULL || matrix_copies[1] == NULL) {
+      die("Erro ao criar matrizes");
+    }
+    fclose(f);
   }
+  else {
+    matrix_copies[0] = dm2dNew(N+2,N+2);
+    matrix_copies[1] = dm2dNew(N+2,N+2);
 
-  dm2dSetLineTo (matrix_copies[0], 0, tSup);
-  dm2dSetLineTo (matrix_copies[0], N+1, tInf);
-  dm2dSetColumnTo (matrix_copies[0], 0, tEsq);
-  dm2dSetColumnTo (matrix_copies[0], N+1, tDir);
-  dm2dCopy (matrix_copies[1],matrix_copies[0]);
+    if (matrix_copies[0] == NULL || matrix_copies[1] == NULL) {
+      die("Erro ao criar matrizes");
+    }
 
+    dm2dSetLineTo (matrix_copies[0], 0, tSup);
+    dm2dSetLineTo (matrix_copies[0], N+1, tInf);
+    dm2dSetColumnTo (matrix_copies[0], 0, tEsq);
+    dm2dSetColumnTo (matrix_copies[0], N+1, tDir);
+    dm2dCopy (matrix_copies[1],matrix_copies[0]);
+  }
   // Reservar memoria para trabalhadoras
   thread_info *tinfo = (thread_info*) malloc(trab * sizeof(thread_info));
   pthread_t *trabalhadoras = (pthread_t*) malloc(trab * sizeof(pthread_t));
@@ -309,6 +330,16 @@ int main (int argc, char** argv) {
   }
 
   dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
+
+  // Esperar por todos os processos para apagar ficheiro
+  for (int i=0; i<dual_barrier->iteracoes_concluidas; i++) {
+    wait(&estado);
+  }
+
+  // Apagar ficheiro
+  if (unlink(fichS) != 0) {
+    die("Erro ao apagar ficheiro");
+  }
 
   // Libertar memoria
   dm2dFree(matrix_copies[0]);

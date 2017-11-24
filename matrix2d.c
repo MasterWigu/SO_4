@@ -99,11 +99,11 @@ void dm2dCopy (DoubleMatrix2D *to, DoubleMatrix2D *from) {
 void dm2dPrint (DoubleMatrix2D *matrix, FILE *f) {
   int i, j;
 
-  printf ("\n");
+  fprintf (f, "\n");
   for (i=0; i<matrix->n_l; i++) {
     for (j=0; j<matrix->n_c; j++)
       fprintf(f, " %8.4f", dm2dGetEntry(matrix, i, j));
-    printf ("\n");
+    fprintf (f, "\n");
   }
 }
 
