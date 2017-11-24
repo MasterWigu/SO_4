@@ -154,8 +154,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       }
       dm2dPrint(matrix_copies[current], fp);
       fclose(fp);
-      printf("FIM\n");
-      fflush(stdout);
       exit(0);
     }
 
