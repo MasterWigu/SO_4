@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <math.h>
+#include <unistd.h>
 
 #include "matrix2d.h"
 #include "util.h"
@@ -23,6 +24,7 @@ typedef struct {
   int    trab;
   int    tam_fatia;
   double maxD;
+  int periodoS;
 } thread_info;
 
 /*--------------------------------------------------------------------
@@ -37,6 +39,7 @@ typedef struct {
   int             iteracoes_concluidas;
   pthread_mutex_t mutex;
   pthread_cond_t  wait[2];
+  char            *fich;
 } DualBarrierWithMax;
 
 /*--------------------------------------------------------------------
@@ -52,7 +55,7 @@ double              maxD;
 | Description: Inicializa uma barreira dupla
 ---------------------------------------------------------------------*/
 
-DualBarrierWithMax *dualBarrierInit(int ntasks) {
+DualBarrierWithMax *dualBarrierInit(int ntasks, char* nFich) {
   DualBarrierWithMax *b;
   b = (DualBarrierWithMax*) malloc (sizeof(DualBarrierWithMax));
   if (b == NULL) return NULL;
@@ -63,6 +66,7 @@ DualBarrierWithMax *dualBarrierInit(int ntasks) {
   b->maxdelta[0] = 0;
   b->maxdelta[1] = 0;
   b->iteracoes_concluidas = 0;
+  b->fich = nFich;
 
   if (pthread_mutex_init(&(b->mutex), NULL) != 0) {
     fprintf(stderr, "\nErro a inicializar mutex\n");
@@ -110,7 +114,8 @@ void dualBarrierFree(DualBarrierWithMax* b) {
 |              resultado no valor de retorno
 ---------------------------------------------------------------------*/
 
-double dualBarrierWait (DualBarrierWithMax* b, int current, double localmax) {
+double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
+  int current = iter % 2;
   int next = 1 - current;
   if (pthread_mutex_lock(&(b->mutex)) != 0) {
     fprintf(stderr, "\nErro a bloquear mutex\n");
@@ -127,6 +132,28 @@ double dualBarrierWait (DualBarrierWithMax* b, int current, double localmax) {
     b->iteracoes_concluidas++;
     b->pending[next]  = b->total_nodes;
     b->maxdelta[next] = 0;
+
+
+    //criar salvaguarda
+    int pid = fork();
+    if (pid == -1) {
+      fprintf(stderr, "Erro no fork\n");
+      exit(1);
+    }
+    //se e tarefa filho
+    if (pid == 0) {
+      //TODO salvar
+      FILE *fp;
+      fp = fopen(b->fich, "w");
+      if (fp == NULL) {
+        fprintf(stderr, "Erro a abrir o ficheiro\n");
+        exit(1);
+      }
+      dm2dPrint(matrix_copies[current], fp);
+      fclose(fp);
+      exit(0);
+    }
+
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
       fprintf(stderr, "\nErro a assinalar todos em variável de condição\n");
       exit(1);
@@ -183,7 +210,7 @@ void *tarefa_trabalhadora(void *args) {
       }
     }
     // barreira de sincronizacao; calcular delta global
-    global_delta = dualBarrierWait(dual_barrier, atual, max_delta);
+    global_delta = dualBarrierWait(dual_barrier, iter, max_delta);
   } while (++iter < tinfo->iter && global_delta >= tinfo->maxD);
 
   return 0;
@@ -200,9 +227,11 @@ int main (int argc, char** argv) {
   int iter, trab;
   int tam_fatia;
   int res;
+  int periodoS;
+  char* fichS;
 
-  if (argc != 9) {
-    fprintf(stderr, "Utilizacao: ./heatSim N tEsq tSup tDir tInf iter trab maxD\n\n");
+  if (argc != 11) {
+    fprintf(stderr, "Utilizacao: ./heatSim N tEsq tSup tDir tInf iter trab maxD fichS periodoS\n\n");
     die("Numero de argumentos invalido");
   }
 
@@ -215,6 +244,8 @@ int main (int argc, char** argv) {
   iter = parse_integer_or_exit(argv[6], "iter", 1);
   trab = parse_integer_or_exit(argv[7], "trab", 1);
   maxD = parse_double_or_exit (argv[8], "maxD", 0);
+  fichS = argv[9];
+  periodoS = parse_integer_or_exit(argv[10], "periodoS", 0);
 
   //fprintf(stderr, "\nArgumentos:\n"
   // " N=d tEsq=%.1f tSup=%.1f tDir=%.1f tInf=%.1f iter=%d trab=%d csz=%d",
@@ -227,7 +258,7 @@ int main (int argc, char** argv) {
   }
 
   // Inicializar Barreira
-  dual_barrier = dualBarrierInit(trab);
+  dual_barrier = dualBarrierInit(trab, fichS);
   if (dual_barrier == NULL)
     die("Nao foi possivel inicializar barreira");
 
@@ -263,6 +294,7 @@ int main (int argc, char** argv) {
     tinfo[i].trab = trab;
     tinfo[i].tam_fatia = tam_fatia;
     tinfo[i].maxD = maxD;
+    tinfo[i].periodoS = periodoS;
     res = pthread_create(&trabalhadoras[i], NULL, tarefa_trabalhadora, &tinfo[i]);
     if (res != 0) {
       die("Erro ao criar uma tarefa trabalhadora");
@@ -276,7 +308,7 @@ int main (int argc, char** argv) {
       die("Erro ao esperar por uma tarefa trabalhadora");
   }
 
-  dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2]);
+  dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
 
   // Libertar memoria
   dm2dFree(matrix_copies[0]);

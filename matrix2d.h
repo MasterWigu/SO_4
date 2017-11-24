@@ -20,7 +20,7 @@ double*         dm2dGetLine (DoubleMatrix2D *matrix, int line_nb);
 void            dm2dSetLine (DoubleMatrix2D *matrix, int line_nb, double* line_values);
 void            dm2dSetLineTo (DoubleMatrix2D *matrix, int line, double value);
 void            dm2dSetColumnTo (DoubleMatrix2D *matrix, int column, double value);
-void            dm2dPrint (DoubleMatrix2D *matrix);
+void            dm2dPrint (DoubleMatrix2D *matrix, FILE *f);
 void            dm2dCopy (DoubleMatrix2D *to, DoubleMatrix2D *from);
 DoubleMatrix2D *readMatrix2dFromFile(FILE *f, int l, int c);
 
