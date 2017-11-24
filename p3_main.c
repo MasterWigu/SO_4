@@ -235,7 +235,6 @@ int main (int argc, char** argv) {
   int periodoS;
   char* fichS;
   FILE *f;
-  //MERDAAAAAAAAAAAAAA
   int estado;
 
   if (argc != 11) {
