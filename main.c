@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <string.h>
 
 
 #include "matrix2d.h"
@@ -138,6 +139,8 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
 
 
     //criar salvaguarda
+    wait(NULL);
+    printf("DDDDDDDDD\n");
     int pid = fork();
     if (pid == -1) {
       fprintf(stderr, "Erro no fork\n");
@@ -145,18 +148,34 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
     }
     //se e tarefa filho
     if (pid == 0) {
-      //TODO salvar
-      FILE *fp;
-      fp = fopen(b->fich, "w");
-      if (fp == NULL) {
-        fprintf(stderr, "Erro a abrir o ficheiro\n");
-        exit(1);
-      }
-      dm2dPrint(matrix_copies[current], fp);
-      fclose(fp);
-      exit(0);
-    }
+      int status;
+      waitpid(-1, &status, WNOHANG);
+      printf("CCCCCCCC\n");
+      printf("%d\n", WIFEXITED(status));
+      // So salva se a tarefa de salvar anterior ja tiver terminado
+      if (WIFEXITED(status)) { 
+        printf("BBBBBBBB\n");
+        char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
+        newFich = strcpy(newFich, b->fich);
+        newFich = strcat(newFich, "~");
 
+        FILE *fp;
+        fp = fopen(newFich, "w");
+        if (fp == NULL) {
+          fprintf(stderr, "Erro a abrir o ficheiro\n");
+          exit(1);
+        }
+        dm2dPrint(matrix_copies[current], fp);
+        fclose(fp);
+      
+        if (iter!=0 && unlink(b->fich) != 0) //na primeira iteracao nao ha ficheiro para eliminar
+          die("Erro ao apagar ficheiro para renomear");
+        if (rename(newFich, b->fich) != 0)
+          die("Erro ao renomear ficheiro");
+        printf("AAAAAAAA\n");
+        exit(0);
+      }
+    }
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
       fprintf(stderr, "\nErro a assinalar todos em variável de condição\n");
       exit(1);
@@ -329,9 +348,9 @@ int main (int argc, char** argv) {
   dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
 
   // Esperar por todos os processos para apagar ficheiro
-  for (int i=0; i<dual_barrier->iteracoes_concluidas; i++) {
+  //for (int i=0; i<dual_barrier->iteracoes_concluidas; i++) {
     wait(&estado);
-  }
+  //}
 
   // Apagar ficheiro
   if (unlink(fichS) != 0) {
