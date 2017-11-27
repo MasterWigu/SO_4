@@ -28,7 +28,6 @@ typedef struct {
   int    trab;
   int    tam_fatia;
   double maxD;
-  int periodoS;
 } thread_info;
 
 /*--------------------------------------------------------------------
@@ -53,6 +52,20 @@ typedef struct {
 DoubleMatrix2D     *matrix_copies[2];
 DualBarrierWithMax *dual_barrier;
 double              maxD;
+int                 periodoS;
+volatile int        guardar;
+int                 ja_guardou;
+
+
+/*--------------------------------------------------------------------
+| Function: save
+| Description: Mete a flag "guardar" a 1 para guardar para o ficheiro
+---------------------------------------------------------------------*/
+void save() {
+  signal(SIGALRM, SIG_IGN); //desactiva o sinal ate ser guardado
+  guardar = 1;
+}
+
 
 /*--------------------------------------------------------------------
 | Function: dualBarrierInit
@@ -143,10 +156,13 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   }
 
     printf("LOLES\n");
+    int pid_filho = 0; //nao faz nada (nao grava)(apenas para inicializar a var)
+    if (guardar) {
     //criar salvaguarda
-    int pid_filho = 1; // 1 e valor padrao para a primeira iteracao (faz sempre fork)
-    if (iter > 0)
-      pid_filho = waitpid(-1, NULL, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+      pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
+      if (ja_guardou)
+        pid_filho = waitpid(-1, NULL, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+    }
 
     printf("LALA%d\n", pid_filho);
     if (pid_filho) {//so faz fork se o processo filho tiver retornado
@@ -175,6 +191,8 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
           die("Erro ao renomear ficheiro");
         printf("AAAAAAAA\n");
         printf("SAI FILHO\n");
+        alarm(periodoS); //mete um novo alarme
+        signal(SIGALRM, save);  //volta a activar o sinal para guardar
         exit(EXIT_SUCCESS);
       }
     }
@@ -256,7 +274,6 @@ int main (int argc, char** argv) {
   int iter, trab;
   int tam_fatia;
   int res;
-  int periodoS;
   char* fichS;
   FILE *f;
   int estado;
@@ -287,6 +304,10 @@ int main (int argc, char** argv) {
                     "%s deve ser multiplo de %s.", "N", "trab", "N", "trab");
     return -1;
   }
+
+  signal(SIGALRM, save); //inicializa o alarme para 
+  ja_guardou = 0;        //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
+  alarm(periodoS);       //inicia o primeiro alarme
 
   // Inicializar Barreira
   dual_barrier = dualBarrierInit(trab, fichS);
@@ -338,7 +359,6 @@ int main (int argc, char** argv) {
     tinfo[i].trab = trab;
     tinfo[i].tam_fatia = tam_fatia;
     tinfo[i].maxD = maxD;
-    tinfo[i].periodoS = periodoS;
     res = pthread_create(&trabalhadoras[i], NULL, tarefa_trabalhadora, &tinfo[i]);
     if (res != 0) {
       die("Erro ao criar uma tarefa trabalhadora");
