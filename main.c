@@ -140,7 +140,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   if (pthread_mutex_unlock(&(b->mutex)) != 0) {
     fprintf(stderr, "\nErro a desbloquear mutex\n");
     exit(1);
-
+  }
 
     printf("LOLES\n");
     //criar salvaguarda
