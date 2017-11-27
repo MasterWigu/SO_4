@@ -137,28 +137,29 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
     b->pending[next]  = b->total_nodes;
     b->maxdelta[next] = 0;
 
+  if (pthread_mutex_unlock(&(b->mutex)) != 0) {
+    fprintf(stderr, "\nErro a desbloquear mutex\n");
+    exit(1);
 
+
+    printf("LOLES\n");
     //criar salvaguarda
-    wait(NULL);
-    printf("DDDDDDDDD\n");
-    int pid = fork();
-    if (pid == -1) {
-      fprintf(stderr, "Erro no fork\n");
-      exit(1);
-    }
-    //se e tarefa filho
-    if (pid == 0) {
-      int status;
-      waitpid(-1, &status, WNOHANG);
-      printf("CCCCCCCC\n");
-      printf("%d\n", WIFEXITED(status));
-      // So salva se a tarefa de salvar anterior ja tiver terminado
-      if (WIFEXITED(status)) { 
-        printf("BBBBBBBB\n");
+    int pid_filho = 1; // 1 e valor padrao para a primeira iteracao (faz sempre fork)
+    if (iter > 0)
+      pid_filho = waitpid(-1, NULL, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+
+    printf("LALA%d\n", pid_filho);
+    if (pid_filho) {//so faz fork se o processo filho tiver retornado
+      int pid = fork();
+      printf("FEZ FORK\n");
+      if (pid == -1) //caso erro
+        die("Erro no fork");
+
+      if (pid == 0) { //se e tarefa filho
+        printf("SOU FILHO\n");
         char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
         newFich = strcpy(newFich, b->fich);
         newFich = strcat(newFich, "~");
-
         FILE *fp;
         fp = fopen(newFich, "w");
         if (fp == NULL) {
@@ -167,15 +168,21 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
         }
         dm2dPrint(matrix_copies[current], fp);
         fclose(fp);
-      
+    
         if (iter!=0 && unlink(b->fich) != 0) //na primeira iteracao nao ha ficheiro para eliminar
           die("Erro ao apagar ficheiro para renomear");
         if (rename(newFich, b->fich) != 0)
           die("Erro ao renomear ficheiro");
         printf("AAAAAAAA\n");
-        exit(0);
+        printf("SAI FILHO\n");
+        exit(EXIT_SUCCESS);
       }
     }
+    if (pthread_mutex_lock(&(b->mutex)) != 0) {
+      fprintf(stderr, "\nErro a bloquear mutex\n");
+      exit(1);
+    }
+
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
       fprintf(stderr, "\nErro a assinalar todos em variável de condição\n");
       exit(1);
@@ -271,9 +278,9 @@ int main (int argc, char** argv) {
   fichS = argv[9];
   periodoS = parse_integer_or_exit(argv[10], "periodoS", 0);
 
-  //fprintf(stderr, "\nArgumentos:\n"
-  // " N=d tEsq=%.1f tSup=%.1f tDir=%.1f tInf=%.1f iter=%d trab=%d csz=%d",
-  // N, tEsq, tSup, tDir, tInf, iter, trab, csz);
+  fprintf(stderr, "\nArgumentos:\n"
+   " N=%d tEsq=%.1f tSup=%.1f tDir=%.1f tInf=%.1f iter=%d trab=%d maxD=%.4f fichS=%s periodoS=%d\n\n",
+   N, tEsq, tSup, tDir, tInf, iter, trab, maxD, fichS, periodoS);
 
   if (N % trab != 0) {
     fprintf(stderr, "\nErro: Argumento %s e %s invalidos.\n"
@@ -345,8 +352,9 @@ int main (int argc, char** argv) {
       die("Erro ao esperar por uma tarefa trabalhadora");
   }
 
-  dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
+  //dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
 
+  printf("DONE\n");
   // Esperar por todos os processos para apagar ficheiro
   //for (int i=0; i<dual_barrier->iteracoes_concluidas; i++) {
     wait(&estado);
