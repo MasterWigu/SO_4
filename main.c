@@ -171,12 +171,13 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       guardar = 0; //reset a flag
       //criar salvaguarda
       pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
-      if (ja_guardou)
+      if (ja_guardou) {
         pid_filho = waitpid(-1, &state_filho, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
         if (WIFEXITED(state_filho) != 1)
           die("Erro no processo filho");
         if (pid_filho == -1)
           die("Erro no waitpid");
+      }
     }
 
     if (pid_filho) { //so faz fork se o processo filho tiver retornado
@@ -342,6 +343,7 @@ int main (int argc, char** argv) {
   // Criar e Inicializar Matrizes
   f = fopen(fichS, "r");
   if (f != NULL) {  //se existir uma salvaguarda
+    fprintf(stderr, "A usar a salvaguarda\n");
     matrix_copies[0] = readMatrix2dFromFile(f, N+2, N+2);
     matrix_copies[1] = dm2dNew(N+2, N+2);
     dm2dCopy(matrix_copies[1], matrix_copies[0]);
