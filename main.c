@@ -53,8 +53,8 @@ DoubleMatrix2D     *matrix_copies[2];
 DualBarrierWithMax *dual_barrier;
 double              maxD;
 int                 periodoS;
-volatile int        guardar;
-int                 ja_guardou;
+volatile int        guardar, parar;
+int                 ja_guardou, existeFich;
 
 
 /*--------------------------------------------------------------------
@@ -64,6 +64,15 @@ int                 ja_guardou;
 void save() {
   signal(SIGALRM, SIG_IGN); //desactiva o sinal ate ser guardado
   guardar = 1;
+}
+
+/*--------------------------------------------------------------------
+| Function: stop
+| Description: Mete a flag "parar" a 1 para parar no fim da iteracao
+---------------------------------------------------------------------*/
+void stop() {
+  signal(SIGINT, SIG_IGN); //desactiva o sinal para evitar corrupcao ao ler a flag
+  parar = 1;
 }
 
 
@@ -134,6 +143,8 @@ void dualBarrierFree(DualBarrierWithMax* b) {
 double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   int current = iter % 2;
   int next = 1 - current;
+  int state_filho;
+
   if (pthread_mutex_lock(&(b->mutex)) != 0) {
     fprintf(stderr, "\nErro a bloquear mutex\n");
     exit(1);
@@ -150,22 +161,25 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
     b->pending[next]  = b->total_nodes;
     b->maxdelta[next] = 0;
 
-  if (pthread_mutex_unlock(&(b->mutex)) != 0) {
-    fprintf(stderr, "\nErro a desbloquear mutex\n");
-    exit(1);
-  }
-
-    printf("LOLES\n");
-    int pid_filho = 0; //nao faz nada (nao grava)(apenas para inicializar a var)
-    if (guardar) {
-    //criar salvaguarda
-      pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
-      if (ja_guardou)
-        pid_filho = waitpid(-1, NULL, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+    if (pthread_mutex_unlock(&(b->mutex)) != 0) {
+      fprintf(stderr, "\nErro a desbloquear mutex\n");
+      exit(1);
     }
 
-    printf("LALA%d\n", pid_filho);
-    if (pid_filho) {//so faz fork se o processo filho tiver retornado
+    int pid_filho = 0; //nao faz nada (nao grava)(apenas para inicializar a var)
+    if (guardar) {
+      guardar = 0; //reset a flag
+      //criar salvaguarda
+      pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
+      if (ja_guardou)
+        pid_filho = waitpid(-1, &state_filho, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+        if (WIFEXITED(state_filho) != 1)
+          die("Erro no processo filho");
+        if (pid_filho == -1)
+          die("Erro no waitpid");
+    }
+
+    if (pid_filho) { //so faz fork se o processo filho tiver retornado
       int pid = fork();
       printf("FEZ FORK\n");
       if (pid == -1) //caso erro
@@ -174,28 +188,35 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       if (pid == 0) { //se e tarefa filho
         printf("SOU FILHO\n");
         char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
+        FILE *fp;
+        
         newFich = strcpy(newFich, b->fich);
         newFich = strcat(newFich, "~");
-        FILE *fp;
         fp = fopen(newFich, "w");
-        if (fp == NULL) {
-          fprintf(stderr, "Erro a abrir o ficheiro\n");
-          exit(1);
-        }
+
+        if (fp == NULL) 
+          die("Erro ao abrir ficheiro");
+
         dm2dPrint(matrix_copies[current], fp);
-        fclose(fp);
+        if (fclose(fp) !=0)
+          die("Erro ao fechar ficheiro");
     
-        if (iter!=0 && unlink(b->fich) != 0) //na primeira iteracao nao ha ficheiro para eliminar
+        if (existeFich && unlink(b->fich) != 0) //na primeira iteracao nao ha ficheiro para eliminar
           die("Erro ao apagar ficheiro para renomear");
+
         if (rename(newFich, b->fich) != 0)
           die("Erro ao renomear ficheiro");
-        printf("AAAAAAAA\n");
-        printf("SAI FILHO\n");
+        printf("SAI FILHO\n\n");
+        exit(0);
+      }
+      else { //tem de ser feito pelo processo pai, se fosse feito pelo filho perdia-se a informacao ao terminar
+        ja_guardou = 1; //ja salvou pelo menos uma vez
+        existeFich = 1; //ja existe ficheiro
         alarm(periodoS); //mete um novo alarme
         signal(SIGALRM, save);  //volta a activar o sinal para guardar
-        exit(EXIT_SUCCESS);
       }
     }
+
     if (pthread_mutex_lock(&(b->mutex)) != 0) {
       fprintf(stderr, "\nErro a bloquear mutex\n");
       exit(1);
@@ -258,7 +279,7 @@ void *tarefa_trabalhadora(void *args) {
     }
     // barreira de sincronizacao; calcular delta global
     global_delta = dualBarrierWait(dual_barrier, iter, max_delta);
-  } while (++iter < tinfo->iter && global_delta >= tinfo->maxD);
+  } while (parar != 1 && ++iter < tinfo->iter && global_delta >= tinfo->maxD);
 
   return 0;
 }
@@ -305,7 +326,8 @@ int main (int argc, char** argv) {
     return -1;
   }
 
-  signal(SIGALRM, save); //inicializa o alarme para 
+  signal(SIGINT, stop);  
+  signal(SIGALRM, save);
   ja_guardou = 0;        //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
   alarm(periodoS);       //inicia o primeiro alarme
 
@@ -319,7 +341,7 @@ int main (int argc, char** argv) {
 
   // Criar e Inicializar Matrizes
   f = fopen(fichS, "r");
-  if (f != NULL) {
+  if (f != NULL) {  //se existir uma salvaguarda
     matrix_copies[0] = readMatrix2dFromFile(f, N+2, N+2);
     matrix_copies[1] = dm2dNew(N+2, N+2);
     dm2dCopy(matrix_copies[1], matrix_copies[0]);
@@ -328,6 +350,7 @@ int main (int argc, char** argv) {
       die("Erro ao criar matrizes");
     }
     fclose(f);
+    existeFich = 1; 
   }
   else {
     matrix_copies[0] = dm2dNew(N+2,N+2);
@@ -375,15 +398,16 @@ int main (int argc, char** argv) {
   //dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
 
   printf("DONE\n");
-  // Esperar por todos os processos para apagar ficheiro
-  //for (int i=0; i<dual_barrier->iteracoes_concluidas; i++) {
-    wait(&estado);
-  //}
 
-  // Apagar ficheiro
-  if (unlink(fichS) != 0) {
-    die("Erro ao apagar ficheiro");
-  }
+
+  // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
+    wait(&estado);
+
+  // Apagar ficheiro (so se guardou alguma vez e se o programa nao esta a terminar por SIGINT)
+  if (existeFich && parar != 1)
+    if (unlink(fichS) != 0) {
+      die("Erro ao apagar ficheiro");
+   }
 
   // Libertar memoria
   dm2dFree(matrix_copies[0]);
