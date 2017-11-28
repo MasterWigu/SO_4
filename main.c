@@ -58,23 +58,16 @@ int                 ja_guardou, existeFich;
 
 
 /*--------------------------------------------------------------------
-| Function: save
+| Function: sinais
 | Description: Mete a flag "guardar" a 1 para guardar para o ficheiro
+|              ou a flag parar a 1 para terminar (depende do signal recebido)
 ---------------------------------------------------------------------*/
-void save() {
-  signal(SIGALRM, SIG_IGN); //desactiva o sinal ate ser guardado
-  guardar = 1;
+void sinais(int signum) {
+  if (signum == SIGINT)
+  	parar = 1;
+  if (signum == SIGALRM)
+  	guardar = 1;
 }
-
-/*--------------------------------------------------------------------
-| Function: stop
-| Description: Mete a flag "parar" a 1 para parar no fim da iteracao
----------------------------------------------------------------------*/
-void stop() {
-  signal(SIGINT, SIG_IGN); //desactiva o sinal para evitar corrupcao ao ler a flag
-  parar = 1;
-}
-
 
 /*--------------------------------------------------------------------
 | Function: dualBarrierInit
@@ -174,7 +167,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       if (ja_guardou) {
         pid_filho = waitpid(-1, &state_filho, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
         if (WIFEXITED(state_filho) != 1)
-          die("Erro no processo filho");
+          fprintf(stderr, "Erro no processo filho");
         if (pid_filho == -1)
           die("Erro no waitpid");
       }
@@ -214,7 +207,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
         ja_guardou = 1; //ja salvou pelo menos uma vez
         existeFich = 1; //ja existe ficheiro
         alarm(periodoS); //mete um novo alarme
-        signal(SIGALRM, save);  //volta a activar o sinal para guardar
       }
     }
 
@@ -299,6 +291,9 @@ int main (int argc, char** argv) {
   char* fichS;
   FILE *f;
   int estado;
+  sigset_t set;
+	struct sigaction action;
+
 
   if (argc != 11) {
     fprintf(stderr, "Utilizacao: ./heatSim N tEsq tSup tDir tInf iter trab maxD fichS periodoS\n\n");
@@ -327,10 +322,8 @@ int main (int argc, char** argv) {
     return -1;
   }
 
-  signal(SIGINT, stop);  
-  signal(SIGALRM, save);
   ja_guardou = 0;        //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
-  alarm(periodoS);       //inicia o primeiro alarme
+  puts("Jord was here!");
 
   // Inicializar Barreira
   dual_barrier = dualBarrierInit(trab, fichS);
@@ -376,6 +369,13 @@ int main (int argc, char** argv) {
     die("Erro ao alocar memoria para trabalhadoras");
   }
 
+
+
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGALRM);
+	pthread_sigmask(SIG_BLOCK, &set, NULL);
+
   // Criar trabalhadoras
   for (int i=0; i < trab; i++) {
     tinfo[i].id = i;
@@ -390,25 +390,47 @@ int main (int argc, char** argv) {
     }
   }
 
+
+
+
+
+  action.sa_handler = sinais;
+  sigemptyset(&action.sa_mask);
+ 	action.sa_flags = 0;
+
+	pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+  sigaction(SIGINT, &action, NULL);
+  sigaction(SIGALRM, &action, NULL);
+
+  alarm(periodoS);       //inicia o primeiro alarme
+
+
+
+
+
+
+
   // Esperar que as trabalhadoras terminem
   for (int i=0; i<trab; i++) {
     res = pthread_join(trabalhadoras[i], NULL);
     if (res != 0)
       die("Erro ao esperar por uma tarefa trabalhadora");
   }
-
-  //dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
-
-  printf("DONE\n");
-
+ 	
+ 	if (parar == 0) { //so imprime matrix se terminar normalmente (sem ser por signal)
+  	//dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
+  	printf("DONE\n");
+  }
 
   // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
-    wait(&estado);
+  wait(&estado);
+  if (WIFEXITED(estado) != 1)
+    	fprintf(stderr, "Erro no processo filho");
 
   // Apagar ficheiro (so se guardou alguma vez e se o programa nao esta a terminar por SIGINT)
   if (existeFich && parar != 1)
     if (unlink(fichS) != 0) {
-      die("Erro ao apagar ficheiro");
+      fprintf(stderr,"Erro ao apagar ficheiro");
    }
 
   // Libertar memoria
