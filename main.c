@@ -56,17 +56,21 @@ int                 periodoS;
 volatile int        guardar, parar;
 int                 ja_guardou, existeFich;
 
-
 /*--------------------------------------------------------------------
 | Function: sinais
 | Description: Mete a flag "guardar" a 1 para guardar para o ficheiro
 |              ou a flag parar a 1 para terminar (depende do signal recebido)
 ---------------------------------------------------------------------*/
 void sinais(int signum) {
-  if (signum == SIGINT)
+	printf("AAAAA\n");
+  if (signum == SIGINT) {
   	parar = 1;
-  if (signum == SIGALRM)
+  	printf("BBBBBB\n");
+  }
+  if (signum == SIGALRM) {
   	guardar = 1;
+  	printf("CCCCCCC\n");
+  }
 }
 
 /*--------------------------------------------------------------------
@@ -285,14 +289,14 @@ void *tarefa_trabalhadora(void *args) {
 int main (int argc, char** argv) {
   int N;
   double tEsq, tSup, tDir, tInf;
-  int iter, trab;
-  int tam_fatia;
-  int res;
-  char* fichS;
-  FILE *f;
-  int estado;
-  sigset_t set;
-	struct sigaction action;
+  int    iter, trab;
+  int    tam_fatia;
+  int    res;
+  char              *fichS;
+  FILE              *f;
+  int               estado;
+  sigset_t          set;
+  struct sigaction  action;
 
 
   if (argc != 11) {
@@ -418,12 +422,14 @@ int main (int argc, char** argv) {
   }
  	
  	if (parar == 0) { //so imprime matrix se terminar normalmente (sem ser por signal)
-  	//dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
-  	printf("DONE\n");
+  	dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
+  	//printf("DONE\n");
   }
 
   // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
+  printf("loles\n");
   wait(&estado);
+  printf("loles2\n");
   if (WIFEXITED(estado) != 1)
     	fprintf(stderr, "Erro no processo filho");
 
