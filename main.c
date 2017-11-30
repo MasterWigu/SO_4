@@ -53,7 +53,7 @@ DoubleMatrix2D     *matrix_copies[2];
 DualBarrierWithMax *dual_barrier;
 double              maxD;
 int                 periodoS;
-volatile int        guardar, parar;
+volatile int        guardar, parar, vai_parar; //vai_parar e uma flag temporaria que evita que uma tarefa termine e outras nao
 int                 ja_guardou, existeFich;
 
 /*--------------------------------------------------------------------
@@ -64,7 +64,7 @@ int                 ja_guardou, existeFich;
 void sinais(int signum) {
 	printf("AAAAA\n");
   if (signum == SIGINT) {
-  	parar = 1;
+  	vai_parar = 1;
   	printf("BBBBBB\n");
   }
   if (signum == SIGALRM) {
@@ -207,17 +207,20 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
         printf("SAI FILHO\n\n");
         exit(0);
       }
-      else { //tem de ser feito pelo processo pai, se fosse feito pelo filho perdia-se a informacao ao terminar
-        ja_guardou = 1; //ja salvou pelo menos uma vez
-        existeFich = 1; //ja existe ficheiro
-        alarm(periodoS); //mete um novo alarme
-      }
+      //tem de ser feito pelo processo pai, se fosse feito pelo filho perdia-se a informacao ao terminar
+      ja_guardou = 1; //ja salvou pelo menos uma vez
+      existeFich = 1; //ja existe ficheiro
+      alarm(periodoS); //mete um novo alarme
     }
+
+    if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
 
     if (pthread_mutex_lock(&(b->mutex)) != 0) {
       fprintf(stderr, "\nErro a bloquear mutex\n");
       exit(1);
     }
+
+
 
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
       fprintf(stderr, "\nErro a assinalar todos em variável de condição\n");
@@ -327,6 +330,8 @@ int main (int argc, char** argv) {
   }
 
   ja_guardou = 0;        //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
+  vai_parar = 0;
+  parar = 0;
   puts("Jord was here!");
 
   // Inicializar Barreira
