@@ -55,6 +55,7 @@ double              maxD;
 int                 periodoS;
 volatile int        guardar, parar, vai_parar; //vai_parar e uma flag temporaria que evita que uma tarefa termine e outras nao
 int                 ja_guardou, existeFich;
+pthread_mutex_t     mutex_signals;
 
 /*--------------------------------------------------------------------
 | Function: sinais
@@ -62,6 +63,9 @@ int                 ja_guardou, existeFich;
 |              ou a flag parar a 1 para terminar (depende do signal recebido)
 ---------------------------------------------------------------------*/
 void sinais(int signum) {
+
+	if (pthread_mutex_lock(&mutex_signals) != 0) 
+		die("Erro a bloquear mutex_signals"); 
 	printf("AAAAA\n");
   if (signum == SIGINT) {
   	vai_parar = 1;
@@ -72,6 +76,8 @@ void sinais(int signum) {
   	alarm(periodoS); //mete um novo alarme
   	printf("CCCCCCC\n");
   }
+  if (pthread_mutex_unlock(&mutex_signals) != 0)
+  	die("Erro a desbloquear mutex_signals");
 }
 
 /*--------------------------------------------------------------------
@@ -141,7 +147,7 @@ void dualBarrierFree(DualBarrierWithMax* b) {
 double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   int current = iter % 2;
   int next = 1 - current;
-  int state_filho;
+  int state_filho, guardar_temp;
 
   if (pthread_mutex_lock(&(b->mutex)) != 0) {
     fprintf(stderr, "\nErro a bloquear mutex\n");
@@ -164,9 +170,20 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       exit(1);
     }
 
+    if (pthread_mutex_lock(&mutex_signals) !=0 ) 
+    	die("Erro a bloquear mutex_signals");
+    if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
+   	if (guardar) {
+   		guardar_temp = guardar;
+   		guardar = 0;
+   	}
+   	if (pthread_mutex_unlock(&mutex_signals) != 0)
+   		die("Erro a desbloquear mutex_signals");
+
+
     int pid_filho = 0; //nao faz nada (nao grava)(apenas para inicializar a var)
-    if (guardar) {
-      guardar = 0; //reset a flag
+    if (guardar_temp) {
+      guardar_temp = 0; //reset a flag
       //criar salvaguarda
       pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
       if (ja_guardou) {
@@ -212,8 +229,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       ja_guardou = 1; //ja salvou pelo menos uma vez
       existeFich = 1; //ja existe ficheiro
     }
-
-    if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
 
     if (pthread_mutex_lock(&(b->mutex)) != 0) {
       fprintf(stderr, "\nErro a bloquear mutex\n");
@@ -329,17 +344,17 @@ int main (int argc, char** argv) {
     return -1;
   }
 
-  ja_guardou = 0;        //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
-  vai_parar = 0;
+  ja_guardou = 0;       //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
+  vai_parar = 0;				//inicializar flags (nao e preciso mutex porque ainda nao ha tarefas em execucao)
   parar = 0;
-  puts("Jord was here!");
+  guardar = 0;
 
   // Inicializar Barreira
   dual_barrier = dualBarrierInit(trab, fichS);
   if (dual_barrier == NULL)
     die("Nao foi possivel inicializar barreira");
 
-  // Calcular tamanho de cada fatia
+  // Calcular tamanho de cada fatiavai_parar
   tam_fatia = N / trab;
 
   // Criar e Inicializar Matrizes
@@ -353,6 +368,7 @@ int main (int argc, char** argv) {
     if (matrix_copies[0] == NULL || matrix_copies[1] == NULL) {
       die("Erro ao criar matrizes");
     }
+
     fclose(f);
     existeFich = 1; 
   }
@@ -373,6 +389,8 @@ int main (int argc, char** argv) {
   // Reservar memoria para trabalhadoras
   thread_info *tinfo = (thread_info*) malloc(trab * sizeof(thread_info));
   pthread_t *trabalhadoras = (pthread_t*) malloc(trab * sizeof(pthread_t));
+  if (pthread_mutex_init(&mutex_signals, NULL) != 0) 
+  	die("Erro a criar mutex para sinais");
 
   if (tinfo == NULL || trabalhadoras == NULL) {
     die("Erro ao alocar memoria para trabalhadoras");
@@ -381,6 +399,10 @@ int main (int argc, char** argv) {
   sigemptyset(&set);
   sigaddset(&set, SIGINT);
   sigaddset(&set, SIGALRM);
+
+
+
+
 	pthread_sigmask(SIG_BLOCK, &set, NULL);
 
   // Criar trabalhadoras
@@ -405,7 +427,7 @@ int main (int argc, char** argv) {
   sigaction(SIGINT, &action, NULL);
   sigaction(SIGALRM, &action, NULL);
 
-  alarm(periodoS);       //inicia o primeiro alarme
+  alarm(periodoS); //inicia o primeiro alarme
 
   // Esperar que as trabalhadoras terminem
   for (int i=0; i<trab; i++) {
@@ -414,12 +436,14 @@ int main (int argc, char** argv) {
       die("Erro ao esperar por uma tarefa trabalhadora");
   }
 
+
   pthread_sigmask(SIG_BLOCK, &set, NULL); //bloqueia os sinais para que não interfiram com o wait
- 	
+
  	if (parar == 0) { //so imprime matrix se terminar normalmente (sem ser por signal)
   	dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
   	//printf("DONE\n");
   }
+
 
   // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
   printf("loles\n");
@@ -428,11 +452,14 @@ int main (int argc, char** argv) {
   if (WIFEXITED(estado) != 1)
     	fprintf(stderr, "Erro no processo filho");
 
+
+
   // Apagar ficheiro (so se guardou alguma vez e se o programa nao esta a terminar por SIGINT)
   if (existeFich && parar != 1)
     if (unlink(fichS) != 0) {
       fprintf(stderr,"Erro ao apagar ficheiro");
    }
+
 
   // Libertar memoria
   dm2dFree(matrix_copies[0]);
@@ -440,6 +467,7 @@ int main (int argc, char** argv) {
   free(tinfo);
   free(trabalhadoras);
   dualBarrierFree(dual_barrier);
+  pthread_mutex_destroy(&mutex_signals);
   
   return 0;
 }
