@@ -172,10 +172,12 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
 
     if (pthread_mutex_lock(&mutex_signals) !=0 ) 
     	die("Erro a bloquear mutex_signals");
+
     if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
    	if (guardar) {
    		guardar_temp = guardar;
    		guardar = 0;
+
    	}
    	if (pthread_mutex_unlock(&mutex_signals) != 0)
    		die("Erro a desbloquear mutex_signals");
@@ -188,6 +190,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       pid_filho = 1; // 1 e valor padrao para a primeira gravacao (faz sempre fork e nao faz waitpid)
       if (ja_guardou) {
         pid_filho = waitpid(-1, &state_filho, WNOHANG); //pid fica a 0 se o processo filho ainda nao retornou
+
         if (WIFEXITED(state_filho) != 1)
           fprintf(stderr, "Erro no processo filho");
         if (pid_filho == -1)
@@ -201,7 +204,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       if (pid == -1) //caso erro
         die("Erro no fork");
 
-      if (pid == 0) { //se e tarefa filho
+      if (pid == 0) { //CODIGO DO FILHO
         printf("SOU FILHO\n");
         char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
         FILE *fp;
@@ -225,7 +228,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
         printf("SAI FILHO\n\n");
         exit(0);
       }
-      //tem de ser feito pelo processo pai, se fosse feito pelo filho perdia-se a informacao ao terminar
+      //CODIGO DO PAI
       ja_guardou = 1; //ja salvou pelo menos uma vez
       existeFich = 1; //ja existe ficheiro
     }
@@ -234,8 +237,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       fprintf(stderr, "\nErro a bloquear mutex\n");
       exit(1);
     }
-
-
 
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
       fprintf(stderr, "\nErro a assinalar todos em variável de condição\n");
@@ -344,6 +345,7 @@ int main (int argc, char** argv) {
     return -1;
   }
 
+  //inicializar flags globais
   ja_guardou = 0;       //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
   vai_parar = 0;				//inicializar flags (nao e preciso mutex porque ainda nao ha tarefas em execucao)
   parar = 0;
@@ -354,8 +356,24 @@ int main (int argc, char** argv) {
   if (dual_barrier == NULL)
     die("Nao foi possivel inicializar barreira");
 
-  // Calcular tamanho de cada fatiavai_parar
+  if (pthread_mutex_init(&mutex_signals, NULL) != 0) 
+  	die("Erro a criar mutex para sinais");
+
+
+
+  //Inicializar estructuras para sigaction e pthread_sigmask
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGALRM);  //para pthread_sigmask
+
+  action.sa_handler = sinais;
+  sigemptyset(&action.sa_mask);
+ 	action.sa_flags = 0;			//para sigaction
+
+
+  // Calcular tamanho de cada fatia
   tam_fatia = N / trab;
+
 
   // Criar e Inicializar Matrizes
   f = fopen(fichS, "r");
@@ -371,8 +389,9 @@ int main (int argc, char** argv) {
 
     fclose(f);
     existeFich = 1; 
+
   }
-  else {
+  else {					//se nao existir salvaguarda
     matrix_copies[0] = dm2dNew(N+2,N+2);
     matrix_copies[1] = dm2dNew(N+2,N+2);
 
@@ -386,22 +405,16 @@ int main (int argc, char** argv) {
     dm2dSetColumnTo (matrix_copies[0], N+1, tDir);
     dm2dCopy (matrix_copies[1],matrix_copies[0]);
   }
+
+
+
   // Reservar memoria para trabalhadoras
   thread_info *tinfo = (thread_info*) malloc(trab * sizeof(thread_info));
   pthread_t *trabalhadoras = (pthread_t*) malloc(trab * sizeof(pthread_t));
-  if (pthread_mutex_init(&mutex_signals, NULL) != 0) 
-  	die("Erro a criar mutex para sinais");
 
   if (tinfo == NULL || trabalhadoras == NULL) {
     die("Erro ao alocar memoria para trabalhadoras");
   }
-
-  sigemptyset(&set);
-  sigaddset(&set, SIGINT);
-  sigaddset(&set, SIGALRM);
-
-
-
 
 	pthread_sigmask(SIG_BLOCK, &set, NULL);
 
@@ -418,10 +431,6 @@ int main (int argc, char** argv) {
       die("Erro ao criar uma tarefa trabalhadora");
     }
   }
-
-  action.sa_handler = sinais;
-  sigemptyset(&action.sa_mask);
- 	action.sa_flags = 0;
 
 	pthread_sigmask(SIG_UNBLOCK, &set, NULL);
   sigaction(SIGINT, &action, NULL);
