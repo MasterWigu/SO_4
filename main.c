@@ -69,6 +69,7 @@ void sinais(int signum) {
   }
   if (signum == SIGALRM) {
   	guardar = 1;
+  	alarm(periodoS); //mete um novo alarme
   	printf("CCCCCCC\n");
   }
 }
@@ -210,7 +211,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       //tem de ser feito pelo processo pai, se fosse feito pelo filho perdia-se a informacao ao terminar
       ja_guardou = 1; //ja salvou pelo menos uma vez
       existeFich = 1; //ja existe ficheiro
-      alarm(periodoS); //mete um novo alarme
     }
 
     if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
@@ -378,8 +378,6 @@ int main (int argc, char** argv) {
     die("Erro ao alocar memoria para trabalhadoras");
   }
 
-
-
   sigemptyset(&set);
   sigaddset(&set, SIGINT);
   sigaddset(&set, SIGALRM);
@@ -399,10 +397,6 @@ int main (int argc, char** argv) {
     }
   }
 
-
-
-
-
   action.sa_handler = sinais;
   sigemptyset(&action.sa_mask);
  	action.sa_flags = 0;
@@ -413,18 +407,14 @@ int main (int argc, char** argv) {
 
   alarm(periodoS);       //inicia o primeiro alarme
 
-
-
-
-
-
-
   // Esperar que as trabalhadoras terminem
   for (int i=0; i<trab; i++) {
     res = pthread_join(trabalhadoras[i], NULL);
     if (res != 0)
       die("Erro ao esperar por uma tarefa trabalhadora");
   }
+
+  pthread_sigmask(SIG_BLOCK, &set, NULL); //bloqueia os sinais para que não interfiram com o wait
  	
  	if (parar == 0) { //so imprime matrix se terminar normalmente (sem ser por signal)
   	dm2dPrint (matrix_copies[dual_barrier->iteracoes_concluidas%2], stdout);
