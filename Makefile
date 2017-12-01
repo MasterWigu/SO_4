@@ -23,8 +23,8 @@ util.o: util.c
 clean:
 	rm -f *.o heatSim
 
-zip: proj3.zip
+zip: proj4.zip
 
-proj3.zip: Makefile main.c matrix2d.h util.h matrix2d.c matrix2d.h util.c
+proj4.zip: Makefile main.c matrix2d.h util.h matrix2d.c matrix2d.h util.c
 	zip $@ $+
 
