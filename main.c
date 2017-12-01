@@ -42,7 +42,6 @@ typedef struct {
   int             iteracoes_concluidas;
   pthread_mutex_t mutex;
   pthread_cond_t  wait[2];
-  char            *fich;
 } DualBarrierWithMax;
 
 /*--------------------------------------------------------------------
@@ -53,6 +52,8 @@ DoubleMatrix2D     *matrix_copies[2];
 DualBarrierWithMax *dual_barrier;
 double              maxD;
 int                 periodoS;
+char               *fichS;
+char               *tempFichS;
 volatile int        guardar, parar, vai_parar; //vai_parar e uma flag temporaria que evita que uma tarefa termine e outras nao
 int                 ja_guardou, existeFich;
 pthread_mutex_t     mutex_signals;
@@ -66,15 +67,13 @@ void sinais(int signum) {
 
 	if (pthread_mutex_lock(&mutex_signals) != 0) 
 		die("Erro a bloquear mutex_signals"); 
-	printf("AAAAAAA\n");
+
   if (signum == SIGINT) {
   	vai_parar = 1;
-  	printf("BBBBBBBBB\n");
   }
   if (signum == SIGALRM) {
   	guardar = 1;
   	alarm(periodoS); //mete um novo alarme
-  	printf("CCCCCCCCCC\n");
   }
 
   if (pthread_mutex_unlock(&mutex_signals) != 0)
@@ -86,7 +85,7 @@ void sinais(int signum) {
 | Description: Inicializa uma barreira dupla
 ---------------------------------------------------------------------*/
 
-DualBarrierWithMax *dualBarrierInit(int ntasks, char* nFich) {
+DualBarrierWithMax *dualBarrierInit(int ntasks) {
   DualBarrierWithMax *b;
   b = (DualBarrierWithMax*) malloc (sizeof(DualBarrierWithMax));
   if (b == NULL) return NULL;
@@ -97,7 +96,6 @@ DualBarrierWithMax *dualBarrierInit(int ntasks, char* nFich) {
   b->maxdelta[0] = 0;
   b->maxdelta[1] = 0;
   b->iteracoes_concluidas = 0;
-  b->fich = nFich;
 
   if (pthread_mutex_init(&(b->mutex), NULL) != 0) {
     fprintf(stderr, "\nErro a inicializar mutex\n");
@@ -139,27 +137,19 @@ void dualBarrierFree(DualBarrierWithMax* b) {
 | Function: salvar para ficheiro
 | Description: Liberta os recursos de uma barreira dupla
 ---------------------------------------------------------------------*/
-int saveToFile(DoubleMatrix2D *matrix, DualBarrierWithMax *b) {
-	printf("ABRE GRAVA\n");
-  char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
+int saveToFile(DoubleMatrix2D *matrix) {
   FILE *fp;
-    
-  newFich = strcpy(newFich, b->fich);
-  newFich = strcat(newFich, "~");
-  fp = fopen(newFich, "w");
+  fp = fopen(tempFichS, "w");
   if (fp == NULL) 
     die("Erro ao abrir ficheiro");
 
   dm2dPrint(matrix, fp);
   if (fclose(fp) !=0)
     die("Erro ao fechar ficheiro");
-    
-  if (existeFich && unlink(b->fich) != 0) //na primeira iteracao nao ha ficheiro para eliminar
-    die("Erro ao apagar ficheiro para renomear");
 
-  if (rename(newFich, b->fich) != 0)
+  if (rename(tempFichS, fichS) != 0)
     die("Erro ao renomear ficheiro");
-  printf("ACABA GRAVA\n");
+  
   return 0;
 }
 
@@ -188,6 +178,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   // actualizar valor maxDelta entre todas as threads
   if (b->maxdelta[current]<localmax)
     b->maxdelta[current]=localmax;
+
   // verificar se sou a ultima tarefa
   if (b->pending[current]==0) {
     // sim -- inicializar proxima barreira e libertar threads
@@ -222,11 +213,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
       }
     }
 
-    if (pthread_mutex_unlock(&(b->mutex)) != 0) {      //Solta o mutex para fazer o fork fora do mutex 
-      fprintf(stderr, "\nErro a desbloquear mutex\n"); //(todas as outras tarefas estao no wait) 
-      exit(1);        //(mesmo que uma tarefa saia do wait, nao ha problema porque a barreira seguinte ja esta inicializada)
-    }
-
     if (pid_filho) { //so faz fork se o processo filho tiver retornado
       int pid = fork();
 
@@ -234,21 +220,13 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
         die("Erro no fork");
 
       if (pid == 0) { //CODIGO DO FILHO
-      	printf("FILHO ENTRA\n");
-        if (saveToFile(matrix_copies[current], b) != 0)
+        if (saveToFile(matrix_copies[current]) != 0)
         	die("Erro a guardar matrix");
-        printf("FILHO SAI\n");
         exit(0);
-
-      }
+      } 
       //CODIGO DO PAI
       ja_guardou = 1; //ja salvou pelo menos uma vez
       existeFich = 1; //ja existe ficheiro
-    }
-
-    if (pthread_mutex_lock(&(b->mutex)) != 0) {
-      fprintf(stderr, "\nErro a bloquear mutex\n");
-      exit(1);
     }
 
     if (pthread_cond_broadcast(&(b->wait[current])) != 0) {
@@ -324,7 +302,6 @@ int main (int argc, char** argv) {
   int    iter, trab;
   int    tam_fatia;
   int    res;
-  char              *fichS;
   FILE              *f;
   int               estado;
   sigset_t          set;
@@ -358,6 +335,12 @@ int main (int argc, char** argv) {
     return -1;
   }
 
+  //criar nome para ficheiro temporario
+  tempFichS = (char*) malloc((strlen(fichS)+1)*sizeof(char));    
+  tempFichS = strcpy(tempFichS, fichS);
+  tempFichS = strcat(tempFichS, "~");
+
+
   //inicializar flags globais
   ja_guardou = 0;       //flag que informa que ainda nunca foi feito nenhum fork (evita erro no waitpid)
   vai_parar = 0;				//inicializar flags (nao e preciso mutex porque ainda nao ha tarefas em execucao)
@@ -365,7 +348,7 @@ int main (int argc, char** argv) {
   guardar = 0;
 
   // Inicializar Barreira
-  dual_barrier = dualBarrierInit(trab, fichS);
+  dual_barrier = dualBarrierInit(trab);
   if (dual_barrier == NULL)
     die("Nao foi possivel inicializar barreira");
 
@@ -466,16 +449,14 @@ int main (int argc, char** argv) {
   	//printf("DONE\n");
   }
 
- 	printf("leles\n");
   // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
   wait(&estado); //erro do wait e ignorado porque pode ocorrer nao haver filho quando o processo vai vai terminar e wait da erro
   if (WIFEXITED(estado) != 1)
     	fprintf(stderr, "Erro no processo filho");
-  printf("lolees\n");
 
  //Fazer a salvaguarda final se o programa esta a terminar por SIGINT
-  if (parar != 0)
-  	saveToFile(matrix_copies[dual_barrier->iteracoes_concluidas%2], dual_barrier);
+  if (parar != 0) 
+  	saveToFile(matrix_copies[dual_barrier->iteracoes_concluidas%2]);
 
   // Apagar ficheiro (so se guardou alguma vez e se o programa nao esta a terminar por SIGINT)
   if (existeFich && parar != 1)
@@ -488,6 +469,7 @@ int main (int argc, char** argv) {
   dm2dFree(matrix_copies[1]);
   free(tinfo);
   free(trabalhadoras);
+  free(tempFichS);
   dualBarrierFree(dual_barrier);
   pthread_mutex_destroy(&mutex_signals);
   
