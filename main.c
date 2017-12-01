@@ -66,16 +66,15 @@ void sinais(int signum) {
 
 	if (pthread_mutex_lock(&mutex_signals) != 0) 
 		die("Erro a bloquear mutex_signals"); 
-	printf("AAAAA\n");
+
   if (signum == SIGINT) {
   	vai_parar = 1;
-  	printf("BBBBBB\n");
   }
   if (signum == SIGALRM) {
   	guardar = 1;
   	alarm(periodoS); //mete um novo alarme
-  	printf("CCCCCCC\n");
   }
+
   if (pthread_mutex_unlock(&mutex_signals) != 0)
   	die("Erro a desbloquear mutex_signals");
 }
@@ -200,12 +199,11 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
 
     if (pid_filho) { //so faz fork se o processo filho tiver retornado
       int pid = fork();
-      printf("FEZ FORK\n");
+
       if (pid == -1) //caso erro
         die("Erro no fork");
 
       if (pid == 0) { //CODIGO DO FILHO
-        printf("SOU FILHO\n");
         char *newFich = (char*) malloc((strlen(b->fich)+1)*sizeof(char));
         FILE *fp;
         
@@ -225,7 +223,6 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
 
         if (rename(newFich, b->fich) != 0)
           die("Erro ao renomear ficheiro");
-        printf("SAI FILHO\n\n");
         exit(0);
       }
       //CODIGO DO PAI
@@ -324,15 +321,15 @@ int main (int argc, char** argv) {
   }
 
   // Ler Input
-  N    = parse_integer_or_exit(argv[1], "N",    1);
-  tEsq = parse_double_or_exit (argv[2], "tEsq", 0);
-  tSup = parse_double_or_exit (argv[3], "tSup", 0);
-  tDir = parse_double_or_exit (argv[4], "tDir", 0);
-  tInf = parse_double_or_exit (argv[5], "tInf", 0);
-  iter = parse_integer_or_exit(argv[6], "iter", 1);
-  trab = parse_integer_or_exit(argv[7], "trab", 1);
-  maxD = parse_double_or_exit (argv[8], "maxD", 0);
-  fichS = argv[9];
+  N        = parse_integer_or_exit(argv[1],  "N",        1);
+  tEsq     = parse_double_or_exit (argv[2],  "tEsq",     0);
+  tSup     = parse_double_or_exit (argv[3],  "tSup",     0);
+  tDir     = parse_double_or_exit (argv[4],  "tDir",     0);
+  tInf     = parse_double_or_exit (argv[5],  "tInf",     0);
+  iter     = parse_integer_or_exit(argv[6],  "iter",     1);
+  trab     = parse_integer_or_exit(argv[7],  "trab",     1);
+  maxD     = parse_double_or_exit (argv[8],  "maxD",     0);
+  fichS    = argv[9];
   periodoS = parse_integer_or_exit(argv[10], "periodoS", 0);
 
   fprintf(stderr, "\nArgumentos:\n"
@@ -455,20 +452,15 @@ int main (int argc, char** argv) {
 
 
   // Esperar pelo ultimo processo filho que foi criado (para poder apagar ficheiro)
-  printf("loles\n");
-  wait(&estado);
-  printf("loles2\n");
+  wait(&estado); //erro do wait e ignorado porque pode ocorrer nao haver filho quando o processo vai vai terminar e wait da erro
   if (WIFEXITED(estado) != 1)
     	fprintf(stderr, "Erro no processo filho");
-
-
 
   // Apagar ficheiro (so se guardou alguma vez e se o programa nao esta a terminar por SIGINT)
   if (existeFich && parar != 1)
     if (unlink(fichS) != 0) {
       fprintf(stderr,"Erro ao apagar ficheiro");
    }
-
 
   // Libertar memoria
   dm2dFree(matrix_copies[0]);
