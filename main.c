@@ -167,7 +167,7 @@ int saveToFile(DoubleMatrix2D *matrix) {
 double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
   int current = iter % 2;
   int next = 1 - current;
-  int state_filho, guardar_temp;
+  int state_filho, guardar_temp = 0;
 
   if (pthread_mutex_lock(&(b->mutex)) != 0) {
     fprintf(stderr, "\nErro a bloquear mutex\n");
@@ -188,6 +188,7 @@ double dualBarrierWait (DualBarrierWithMax* b, int iter, double localmax) {
 
     if (pthread_mutex_lock(&mutex_signals) !=0 ) //Seccao critica das flags
     	die("Erro a bloquear mutex_signals");
+
 
     if (vai_parar) parar = 1; //se foi acionado SIGINT durante a iteracao, aciona flag para parar
    	if (guardar) {
@@ -336,7 +337,7 @@ int main (int argc, char** argv) {
   }
 
   //criar nome para ficheiro temporario
-  tempFichS = (char*) malloc((strlen(fichS)+1)*sizeof(char));    
+  tempFichS = (char*) malloc((strlen(fichS)+2)*sizeof(char));  //2 porque o strlen nao conta o \0
   tempFichS = strcpy(tempFichS, fichS);
   tempFichS = strcat(tempFichS, "~");
 
